@@ -16,6 +16,9 @@ interface IEventTicket {
     /// @notice Emitted when a ticket is checked in at the gate (one-way).
     event CheckedIn(uint256 indexed tokenId, address indexed holder);
 
+    /// @notice Emitted when the organizer grants/revokes a verifier's check-in rights.
+    event VerifierUpdated(address indexed verifier, bool authorized);
+
     /*//////////////////////////////////////////////////////////////
                                STRUCTS
     //////////////////////////////////////////////////////////////*/
@@ -46,10 +49,21 @@ interface IEventTicket {
     /// @notice Mark a ticket as used at the gate. One-way; reverts if already used.
     /// @dev Verifier confirms the holder controls the owning wallet off-chain (signature),
     ///      then this flips the flag so the ticket cannot be reused.
+    ///      Callable only by the organizer (owner) or an address the organizer has
+    ///      authorized via `setVerifier` — gate staff should be granted verifier
+    ///      status rather than the check being open to anyone.
     function checkIn(uint256 tokenId) external;
 
     /// @notice Whether a ticket has already been checked in.
     function isCheckedIn(uint256 tokenId) external view returns (bool);
+
+    /// @notice Grant or revoke an address's ability to call `checkIn`. Organizer only.
+    /// @param verifier The gate-staff wallet to authorize (or deauthorize).
+    /// @param authorized True to grant check-in rights, false to revoke.
+    function setVerifier(address verifier, bool authorized) external;
+
+    /// @notice Whether `account` is authorized to call `checkIn` (besides the organizer).
+    function isVerifier(address account) external view returns (bool);
 
     /*//////////////////////////////////////////////////////////////
                                VIEWS

@@ -7,7 +7,7 @@ import {IEventFactory} from "./interfaces/IEventFactory.sol";
 
 /// @title EventFactory
 /// @notice Deploys EventTicket contracts and records them in a registry.
-/// @dev OWNER: Dev 1 (Core contracts). The registry is the anti-counterfeit anchor.
+/// @dev The registry is the anti-counterfeit anchor.
 contract EventFactory is IEventFactory {
     mapping(address => bool) private _legit;
     address[] private _events;

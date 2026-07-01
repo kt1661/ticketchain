@@ -8,8 +8,7 @@ import {Marketplace} from "../src/Marketplace.sol";
 import {IEventTicket} from "../src/interfaces/IEventTicket.sol";
 import {IMarketplace} from "../src/interfaces/IMarketplace.sol";
 
-/// @notice OWNER: Dev 3 (Security & testing) + Dev 2.
-/// Unit + fuzz tests for resale rules, plus a reentrancy attack harness.
+/// @notice Unit + fuzz tests for resale rules, plus a reentrancy attack harness.
 contract MarketplaceTest is Test {
     EventFactory factory;
     EventTicket ticket;
@@ -23,7 +22,7 @@ contract MarketplaceTest is Test {
 
     function setUp() public {
         factory = new EventFactory();
-        market = new Marketplace();
+        market = new Marketplace(address(factory));
 
         IEventTicket.EventInfo memory info = IEventTicket.EventInfo({
             name: "Demo Concert",
@@ -81,6 +80,85 @@ contract MarketplaceTest is Test {
         market.list(address(ticket), 1, FACE);
     }
 
+    function test_CannotListWithoutApproval() public {
+        vm.prank(organizer);
+        ticket.mint(bob, "B-1");
+        // bob never approved the marketplace for token 2
+        vm.prank(bob);
+        vm.expectRevert("Marketplace: not approved");
+        market.list(address(ticket), 2, FACE);
+    }
+
+    /// @notice A ticket contract that was never registered via EventFactory (e.g. a
+    ///         counterfeit look-alike) must be rejected at list time, even though it
+    ///         exposes the exact same interface as a real EventTicket.
+    function test_CannotListUnknownEvent() public {
+        IEventTicket.EventInfo memory info = IEventTicket.EventInfo({
+            name: "Rogue Event",
+            eventDate: block.timestamp + 30 days,
+            venue: "Nowhere",
+            faceValue: FACE,
+            maxSupply: 10
+        });
+        vm.prank(organizer);
+        EventTicket rogue = new EventTicket(organizer, info); // bypasses EventFactory
+
+        vm.prank(organizer);
+        rogue.mint(alice, "R-1");
+        vm.prank(alice);
+        rogue.approve(address(market), 1);
+
+        assertFalse(factory.isLegitimate(address(rogue)));
+
+        vm.prank(alice);
+        vm.expectRevert("Marketplace: unknown event");
+        market.list(address(rogue), 1, FACE);
+    }
+
+    /// @notice If the seller transfers the ticket away directly (bypassing the
+    ///         marketplace) after listing, the listing goes stale and buy() must
+    ///         reject it with a clear reason instead of failing deep in transferFrom.
+    function test_CannotBuyStaleListing() public {
+        vm.prank(alice);
+        market.list(address(ticket), 1, FACE);
+
+        vm.prank(alice);
+        ticket.transferFrom(alice, bob, 1);
+
+        vm.prank(bob);
+        vm.expectRevert("Marketplace: stale listing");
+        market.buy{value: FACE}(address(ticket), 1);
+    }
+
+    function test_SellerCanCancelListing() public {
+        vm.prank(alice);
+        market.list(address(ticket), 1, FACE);
+
+        vm.prank(alice);
+        market.cancelListing(address(ticket), 1);
+
+        assertFalse(market.getListing(address(ticket), 1).active);
+
+        vm.prank(bob);
+        vm.expectRevert("Marketplace: not listed");
+        market.buy{value: FACE}(address(ticket), 1);
+    }
+
+    function test_NonSellerCannotCancelListing() public {
+        vm.prank(alice);
+        market.list(address(ticket), 1, FACE);
+
+        vm.prank(bob);
+        vm.expectRevert("Marketplace: not seller");
+        market.cancelListing(address(ticket), 1);
+    }
+
+    function test_CannotCancelInactiveListing() public {
+        vm.prank(alice);
+        vm.expectRevert("Marketplace: not listed");
+        market.cancelListing(address(ticket), 1);
+    }
+
     /// @notice Fuzz the resale price. Any price within the cap should list and sell;
     ///         the buyer must always end up owning the token and the seller paid.
     function testFuzz_ResaleWithinCap(uint256 price) public {
@@ -113,7 +191,9 @@ contract MarketplaceTest is Test {
     }
 
     /// @notice Reentrancy harness. Demonstrates nonReentrant protection on buy().
-    /// @dev Dev 3: use this to show an attack attempt is blocked. If you remove
+    /// @dev Use this to show an attack attempt is blocked. The attacker
+    ///      overpays so buy()'s overpayment refund sends it ETH mid-call — that's
+    ///      the callback hook it uses to attempt a reentrant buy(). If you remove
     ///      the guard / break CEI in Marketplace, this test should start failing —
     ///      that contrast is gold for the security writeup.
     function test_ReentrancyOnBuyIsBlocked() public {
@@ -123,10 +203,10 @@ contract MarketplaceTest is Test {
         vm.prank(alice);
         market.list(address(ticket), 1, FACE);
 
-        // Attacker is the "organizer" payee in this scenario only if it were owner;
-        // here we simply assert a reentrant call path cannot drain via nested buy().
+        // Overpay so the refund step calls back into the attacker, which then
+        // tries to re-enter buy(); nonReentrant must block the nested call.
         vm.expectRevert();
-        attacker.attack{value: FACE}();
+        attacker.attack{value: FACE + 1 ether}();
     }
 }
 

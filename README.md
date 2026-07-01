@@ -17,11 +17,11 @@ EventFactory                         # deploys + registers events (anti-counterf
 Marketplace                          # rule-bound resale: price caps + organizer royalties
 ```
 
-| Contract | Owner | Status |
-|----------|-------|--------|
-| `EventTicket.sol` | Dev 1 | Happy path implemented; check-in authorization is a deliberate `TODO` |
-| `EventFactory.sol` | Dev 1 | Complete |
-| `Marketplace.sol` | Dev 2 | Resale path sketched; `buy()` hardening is the core `TODO` |
+| Contract | Status |
+|----------|--------|
+| `EventTicket.sol` | Complete — minting, one-way check-in restricted to organizer/authorized verifiers |
+| `EventFactory.sol` | Complete — event registry / anti-counterfeit anchor |
+| `Marketplace.sol` | Complete — hardened resale: CEI + `nonReentrant`, royalty split, refunds, registry + approval checks |
 
 ---
 
@@ -75,32 +75,20 @@ forge script script/Deploy.s.sol --rpc-url sepolia \
 
 ---
 
-## Work division (5 people, 3 weeks)
+## Security hardening implemented
 
-- **Dev 1 — Core contracts:** `EventTicket`, `EventFactory`. Leads the day-2 interface freeze.
-- **Dev 2 — Marketplace:** resale rules, price caps, royalties, harden `buy()`.
-- **Dev 3 — Security & testing:** cross-cutting fuzz + invariant suite, reentrancy harness, security writeup.
-- **Dev 4 — Frontend:** React + wagmi UI (browse, buy, resell, ownership lookup, QR).
-- **Dev 5 — Verifier + deployment:** gate verifier (sign challenge → check `ownerOf` + check-in), deploy scripts, Sepolia, IPFS metadata.
-
-### Week-by-week
-- **Week 1:** freeze interfaces, core contracts pass unit tests.
-- **Week 2:** marketplace complete, full buy→resell→check-in works locally, fuzz/invariant tests in.
-- **Week 3:** deploy to Sepolia, frontend on real addresses, security writeup, demo + buffer.
-
----
-
-## The `TODO`s are the assignment
-
-The stubs compile and the happy path works so everyone can start in parallel. The
-real work — and the security story for your writeup — lives in the marked `TODO`s,
-especially:
-
-1. **`Marketplace.buy()`** — enforce Checks-Effects-Interactions, split payments,
-   refund overpayment. The reentrancy test in `test/Marketplace.t.sol` is there to
-   prove your hardened version is safe (and to fail loudly if someone breaks it).
-2. **`EventTicket.checkIn()`** — decide who is authorized to check tickets in.
-   Right now it's open to anyone; that's a gap to close and document.
+- **`Marketplace.buy()`** — enforces Checks-Effects-Interactions, splits payment
+  (royalty → organizer, remainder → seller), refunds overpayment, and is guarded
+  with `nonReentrant`. The reentrancy test in `test/Marketplace.t.sol` proves a
+  reentrant call is blocked (and fails loudly if the guard or CEI ordering breaks).
+- **`Marketplace.list()`** — rejects tickets from event contracts that aren't
+  registered in `EventFactory` (blocks counterfeit look-alike contracts), and
+  requires marketplace approval before a listing can be created.
+- **`Marketplace.buy()`** also re-verifies the seller still owns the token before
+  moving any funds, so a listing that went stale (seller transferred the ticket
+  away directly) fails fast with a clear reason.
+- **`EventTicket.checkIn()`** — restricted to the organizer or an address granted
+  verifier status via `setVerifier`; no longer open to anyone.
 
 ---
 

@@ -7,8 +7,7 @@ import {EventFactory} from "../src/EventFactory.sol";
 import {EventTicket} from "../src/EventTicket.sol";
 import {IEventTicket} from "../src/interfaces/IEventTicket.sol";
 
-/// @notice OWNER: Dev 3 (Security & testing).
-/// Invariant tests assert properties that must hold no matter what sequence of
+/// @notice Invariant tests assert properties that must hold no matter what sequence of
 /// calls the fuzzer throws at the contract.
 ///
 /// Properties checked:
@@ -80,6 +79,7 @@ contract TicketHandler is Test {
         if (minted == 0) return;
         id = (id % minted) + 1; // map into a valid token id range
         if (ticket.isCheckedIn(id)) return;
+        vm.prank(organizer);
         ticket.checkIn(id);
         _checkedIn.push(id);
     }

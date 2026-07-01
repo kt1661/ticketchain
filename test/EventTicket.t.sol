@@ -6,8 +6,7 @@ import {EventFactory} from "../src/EventFactory.sol";
 import {EventTicket} from "../src/EventTicket.sol";
 import {IEventTicket} from "../src/interfaces/IEventTicket.sol";
 
-/// @notice OWNER: Dev 3 (Security & testing) + Dev 1.
-/// Unit tests for core minting, check-in, and the factory registry.
+/// @notice Unit tests for core minting, check-in, and the factory registry.
 contract EventTicketTest is Test {
     EventFactory factory;
     EventTicket ticket;
@@ -79,9 +78,11 @@ contract EventTicketTest is Test {
         vm.prank(organizer);
         uint256 id = ticket.mint(alice, "A-12");
 
+        vm.prank(organizer);
         ticket.checkIn(id);
         assertTrue(ticket.isCheckedIn(id));
 
+        vm.prank(organizer);
         vm.expectRevert("EventTicket: already checked in");
         ticket.checkIn(id);
     }
@@ -89,5 +90,47 @@ contract EventTicketTest is Test {
     function test_CannotCheckInNonexistent() public {
         vm.expectRevert("EventTicket: nonexistent");
         ticket.checkIn(999);
+    }
+
+    function test_UnauthorizedCannotCheckIn() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        vm.prank(bob);
+        vm.expectRevert("EventTicket: not authorized");
+        ticket.checkIn(id);
+    }
+
+    function test_AuthorizedVerifierCanCheckIn() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        vm.prank(organizer);
+        ticket.setVerifier(bob, true);
+        assertTrue(ticket.isVerifier(bob));
+
+        vm.prank(bob);
+        ticket.checkIn(id);
+        assertTrue(ticket.isCheckedIn(id));
+    }
+
+    function test_OnlyOrganizerCanSetVerifier() public {
+        vm.prank(alice);
+        vm.expectRevert(); // Ownable: caller is not the owner
+        ticket.setVerifier(bob, true);
+    }
+
+    function test_RevokedVerifierCannotCheckIn() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        vm.startPrank(organizer);
+        ticket.setVerifier(bob, true);
+        ticket.setVerifier(bob, false);
+        vm.stopPrank();
+
+        vm.prank(bob);
+        vm.expectRevert("EventTicket: not authorized");
+        ticket.checkIn(id);
     }
 }

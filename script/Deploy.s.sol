@@ -6,8 +6,7 @@ import {EventFactory} from "../src/EventFactory.sol";
 import {Marketplace} from "../src/Marketplace.sol";
 import {IEventTicket} from "../src/interfaces/IEventTicket.sol";
 
-/// @notice OWNER: Dev 5 (Verifier + deployment).
-/// Deploys the factory and marketplace, then creates one demo event.
+/// @notice Deploys the factory and marketplace, then creates one demo event.
 ///
 /// Usage (local):
 ///   anvil    # in another terminal
@@ -22,7 +21,7 @@ contract Deploy is Script {
         vm.startBroadcast();
 
         EventFactory factory = new EventFactory();
-        Marketplace market = new Marketplace();
+        Marketplace market = new Marketplace(address(factory));
 
         IEventTicket.EventInfo memory info = IEventTicket.EventInfo({
             name: "TicketChain Demo Night",

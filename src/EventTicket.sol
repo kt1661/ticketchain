@@ -7,8 +7,6 @@ import {IEventTicket} from "./interfaces/IEventTicket.sol";
 
 /// @title EventTicket
 /// @notice One contract per event. Each token is one ticket.
-/// @dev OWNER: Dev 1 (Core contracts). This stub implements the happy path so the
-///      rest of the team can build against it. Search for `TODO` for hardening work.
 contract EventTicket is ERC721, Ownable, IEventTicket {
     EventInfo private _info;
     uint256 private _nextId = 1;
@@ -16,6 +14,7 @@ contract EventTicket is ERC721, Ownable, IEventTicket {
 
     mapping(uint256 => string) private _seat;
     mapping(uint256 => bool) private _checkedIn;
+    mapping(address => bool) private _verifiers;
 
     /// @param organizer The wallet that controls minting (the event organizer).
     /// @param info_ Immutable event metadata.
@@ -41,11 +40,13 @@ contract EventTicket is ERC721, Ownable, IEventTicket {
     }
 
     /// @inheritdoc IEventTicket
-    /// @dev TODO (Dev 1 + Dev 3): decide authorization model. Should checkIn be
-    ///      callable only by an authorized verifier role rather than anyone?
-    ///      Right now it's open — that's a deliberate gap to discuss in the writeup.
+    /// @dev Authorization model: only the organizer (owner) or an address the
+    ///      organizer has explicitly granted verifier status may check tickets in.
+    ///      This closes the "anyone can check in / grief" gap — gate staff get
+    ///      verifier status via `setVerifier` instead of the function being open.
     function checkIn(uint256 tokenId) external {
         require(_ownerOf(tokenId) != address(0), "EventTicket: nonexistent");
+        require(msg.sender == owner() || _verifiers[msg.sender], "EventTicket: not authorized");
         require(!_checkedIn[tokenId], "EventTicket: already checked in");
         _checkedIn[tokenId] = true;
         emit CheckedIn(tokenId, ownerOf(tokenId));
@@ -54,6 +55,17 @@ contract EventTicket is ERC721, Ownable, IEventTicket {
     /// @inheritdoc IEventTicket
     function isCheckedIn(uint256 tokenId) external view returns (bool) {
         return _checkedIn[tokenId];
+    }
+
+    /// @inheritdoc IEventTicket
+    function setVerifier(address verifier, bool authorized) external onlyOwner {
+        _verifiers[verifier] = authorized;
+        emit VerifierUpdated(verifier, authorized);
+    }
+
+    /// @inheritdoc IEventTicket
+    function isVerifier(address account) external view returns (bool) {
+        return _verifiers[account];
     }
 
     /// @inheritdoc IEventTicket
