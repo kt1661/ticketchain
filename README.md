@@ -19,7 +19,7 @@ Marketplace                          # rule-bound resale: price caps + organizer
 
 | Contract | Status |
 |----------|--------|
-| `EventTicket.sol` | Complete — minting, one-way check-in restricted to organizer/authorized verifiers |
+| `EventTicket.sol` | Complete — minting, one-way check-in (manual + EIP-712 signature-verified) restricted to organizer/authorized verifiers, off-chain metadata integrity hash |
 | `EventFactory.sol` | Complete — event registry / anti-counterfeit anchor |
 | `Marketplace.sol` | Complete — hardened resale: CEI + `nonReentrant`, royalty split, refunds, registry + approval checks |
 
@@ -102,6 +102,45 @@ forge script script/Deploy.s.sol --rpc-url sepolia \
 
 ---
 
+## Off-chain metadata + on-chain integrity hash
+
+Event art, seat-map images, long descriptions, and other display content don't
+belong on-chain (expensive, and doesn't need trustless verification the way
+ownership does). Instead, `EventTicket` stores a pointer + hash:
+
+- `metadataURI` — where to fetch the off-chain file (e.g. `metadata/demo-concert.json`
+  in this repo, or an IPFS URI in a real deployment).
+- `metadataHash` — `keccak256` of that file's exact bytes at the time the organizer
+  committed it.
+
+Anyone can independently check integrity: fetch the file at `metadataURI`, hash it,
+and compare to `metadataHash`. A match proves the content hasn't been swapped since
+the organizer committed it; a mismatch proves tampering
+(`test_TamperedArtifactFailsIntegrityCheck`).
+
+**Important:** this hash is a content-integrity check only — it does **not**
+determine ticket validity or ownership. Those are already fully established
+on-chain via `EventFactory.isLegitimate`, `ownerOf`, and `isCheckedIn`, completely
+independent of this mechanism.
+
+`setMetadata(uri, hash)` is restricted to the organizer (`onlyOwner`) and is
+re-callable, so a legitimate change (e.g. a venue change) is just the organizer
+calling it again. Every call emits `MetadataUpdated`, giving a full on-chain audit
+trail of every change, not just the current value (`test_OrganizerCanLegitimatelyUpdateMetadata`).
+
+> **Known limitation:** this design puts full trust in a single organizer private
+> key. Anyone who controls that key can push a `setMetadata` update that looks
+> "legitimate" on-chain — e.g. announcing a fraudulent last-minute venue change —
+> and the audit trail would faithfully record it as an authorized change, because
+> cryptographically it *was* signed by the organizer's key. The contract cannot
+> distinguish "the real organizer decided to change the venue" from "the
+> organizer's key was phished and someone else did." A production system would
+> likely want a timelock (so changes are visible before they take effect) and/or
+> multisig control over the organizer role to reduce single-key risk. This is
+> called out here deliberately as a disclosed limitation rather than solved.
+
+---
+
 ## Security properties under test
 
 - Reentrancy on `buy()` is blocked (`test_ReentrancyOnBuyIsBlocked`).
@@ -114,3 +153,5 @@ forge script script/Deploy.s.sol --rpc-url sepolia \
   owner, expired signatures, and signatures replayed against a different tokenId
   (`test_CheckInWithWrongSignerReverts`, `test_CheckInSignatureExpiredReverts`,
   `test_CheckInSignatureBoundToTokenId`).
+- Only the organizer can update off-chain metadata (`test_NonOrganizerCannotSetMetadata`);
+  a tampered artifact fails re-hash comparison (`test_TamperedArtifactFailsIntegrityCheck`).

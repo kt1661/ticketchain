@@ -238,4 +238,86 @@ contract EventTicketTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, digest);
         return abi.encodePacked(r, s, v);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                OFF-CHAIN METADATA INTEGRITY (setMetadata)
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Organizer can point the ticket at an off-chain metadata file and
+    ///         commit to its hash.
+    function test_OrganizerCanSetMetadata() public {
+        string memory uri = "metadata/demo-concert.json";
+        bytes32 hash = keccak256(bytes(vm.readFile(uri)));
+
+        vm.prank(organizer);
+        ticket.setMetadata(uri, hash);
+
+        assertEq(ticket.metadataURI(), uri);
+        assertEq(ticket.metadataHash(), hash);
+    }
+
+    function test_NonOrganizerCannotSetMetadata() public {
+        vm.prank(alice);
+        vm.expectRevert(); // Ownable: caller is not the owner
+        ticket.setMetadata("metadata/demo-concert.json", bytes32(uint256(1)));
+    }
+
+    /// @notice The whole point of the hash: fetch the real off-chain file, hash it
+    ///         yourself, and confirm it matches what the organizer committed on-chain.
+    ///         This is the "integrity check result" a verifier/report would show.
+    function test_MetadataHashMatchesOffChainArtifact() public {
+        string memory uri = "metadata/demo-concert.json";
+        bytes32 realHash = keccak256(bytes(vm.readFile(uri)));
+
+        vm.prank(organizer);
+        ticket.setMetadata(uri, realHash);
+
+        string memory fetched = vm.readFile(ticket.metadataURI());
+        assertEq(keccak256(bytes(fetched)), ticket.metadataHash());
+    }
+
+    /// @notice If the off-chain file is swapped/tampered with after the organizer
+    ///         committed its hash, re-hashing the (now different) content no
+    ///         longer matches on-chain — tampering is detectable, not prevented.
+    function test_TamperedArtifactFailsIntegrityCheck() public {
+        string memory originalUri = "metadata/demo-concert.json";
+        bytes32 committedHash = keccak256(bytes(vm.readFile(originalUri)));
+
+        vm.prank(organizer);
+        ticket.setMetadata(originalUri, committedHash);
+
+        // Attacker swaps in different content at the same nominal location
+        // (simulated here by hashing a different file the organizer never approved).
+        string memory tamperedContent = vm.readFile("metadata/demo-concert-v2.json");
+        bytes32 tamperedHash = keccak256(bytes(tamperedContent));
+
+        assertTrue(tamperedHash != ticket.metadataHash());
+    }
+
+    /// @notice A legitimate change (e.g. a venue change) is just the organizer
+    ///         calling setMetadata again; every change is auditable via events,
+    ///         and the latest on-chain value is always the authoritative one.
+    function test_OrganizerCanLegitimatelyUpdateMetadata() public {
+        string memory v1Uri = "metadata/demo-concert.json";
+        bytes32 v1Hash = keccak256(bytes(vm.readFile(v1Uri)));
+        string memory v2Uri = "metadata/demo-concert-v2.json";
+        bytes32 v2Hash = keccak256(bytes(vm.readFile(v2Uri)));
+
+        vm.prank(organizer);
+        vm.expectEmit(false, false, false, true, address(ticket));
+        emit IEventTicket.MetadataUpdated(v1Uri, v1Hash);
+        ticket.setMetadata(v1Uri, v1Hash);
+
+        vm.prank(organizer);
+        vm.expectEmit(false, false, false, true, address(ticket));
+        emit IEventTicket.MetadataUpdated(v2Uri, v2Hash);
+        ticket.setMetadata(v2Uri, v2Hash);
+
+        // Only the latest version is authoritative on-chain...
+        assertEq(ticket.metadataURI(), v2Uri);
+        assertEq(ticket.metadataHash(), v2Hash);
+        // ...but the old version is still independently verifiable against
+        // history for anyone auditing what changed and when (via event logs).
+        assertTrue(v1Hash != v2Hash);
+    }
 }

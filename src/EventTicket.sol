@@ -25,6 +25,9 @@ contract EventTicket is ERC721, Ownable, EIP712, IEventTicket {
     mapping(uint256 => bool) private _checkedIn;
     mapping(address => bool) private _verifiers;
 
+    string private _metadataURI;
+    bytes32 private _metadataHash;
+
     /// @param organizer The wallet that controls minting (the event organizer).
     /// @param info_ Immutable event metadata.
     constructor(address organizer, EventInfo memory info_)
@@ -117,6 +120,23 @@ contract EventTicket is ERC721, Ownable, EIP712, IEventTicket {
     /// @inheritdoc IEventTicket
     function isVerifier(address account) external view returns (bool) {
         return _verifiers[account];
+    }
+
+    /// @inheritdoc IEventTicket
+    function setMetadata(string calldata uri, bytes32 hash) external onlyOwner {
+        _metadataURI = uri;
+        _metadataHash = hash;
+        emit MetadataUpdated(uri, hash);
+    }
+
+    /// @inheritdoc IEventTicket
+    function metadataURI() external view returns (string memory) {
+        return _metadataURI;
+    }
+
+    /// @inheritdoc IEventTicket
+    function metadataHash() external view returns (bytes32) {
+        return _metadataHash;
     }
 
     /// @inheritdoc IEventTicket

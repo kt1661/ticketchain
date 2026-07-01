@@ -1,0 +1,12 @@
+{
+  "name": "Demo Concert",
+  "description": "General admission ticket to the TicketChain demo concert. Venue changed after original announcement.",
+  "venue": "Barclays Center",
+  "eventDate": "2026-08-01T19:00:00Z",
+  "image": "ipfs://bafybeigdemoplaceholdercid/ticket-art.png",
+  "attributes": [
+    { "trait_type": "Venue", "value": "Barclays Center" },
+    { "trait_type": "Event Date", "value": "2026-08-01" },
+    { "trait_type": "Tier", "value": "General Admission" }
+  ]
+}

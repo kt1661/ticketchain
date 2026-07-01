@@ -19,11 +19,18 @@ interface IEventTicket {
     /// @notice Emitted when the organizer grants/revokes a verifier's check-in rights.
     event VerifierUpdated(address indexed verifier, bool authorized);
 
+    /// @notice Emitted whenever the organizer sets or updates the off-chain
+    ///         metadata pointer/hash, giving a full on-chain audit trail of every
+    ///         (authorized) change — not just the current value.
+    event MetadataUpdated(string uri, bytes32 hash);
+
     /*//////////////////////////////////////////////////////////////
                                STRUCTS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Immutable metadata describing the event this contract issues tickets for.
+    /// @notice Immutable, on-chain event fields set at deployment. Distinct from the
+    ///         off-chain metadata (art, long description, etc.) pointed to by
+    ///         `metadataURI`/`metadataHash` below, which the organizer CAN update.
     struct EventInfo {
         string name;
         uint256 eventDate; // unix timestamp
@@ -82,6 +89,30 @@ interface IEventTicket {
 
     /// @notice Whether `account` is authorized to call `checkIn` (besides the organizer).
     function isVerifier(address account) external view returns (bool);
+
+    /*//////////////////////////////////////////////////////////////
+                    OFF-CHAIN METADATA INTEGRITY
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Point at (and commit to the integrity of) an off-chain metadata
+    ///         file — event art, seat map, long-form description, etc. Organizer
+    ///         only. Anyone can independently verify the file hasn't been swapped
+    ///         by fetching `uri`, hashing it, and comparing to `hash`.
+    /// @dev This is intentionally re-callable: a legitimate change (e.g. a venue
+    ///      change) is just the organizer calling this again with a new uri/hash.
+    ///      Every call emits `MetadataUpdated`, so the full history of changes —
+    ///      not just the latest value — is auditable from event logs. This does
+    ///      NOT affect ticket validity or ownership; it only proves the *content*
+    ///      pointed to by `uri` matches `hash` as of the organizer's last update.
+    /// @param uri Where to fetch the metadata file (e.g. an IPFS URI or path).
+    /// @param hash keccak256 of the file's exact bytes at `uri`.
+    function setMetadata(string calldata uri, bytes32 hash) external;
+
+    /// @notice The current off-chain metadata location.
+    function metadataURI() external view returns (string memory);
+
+    /// @notice The current off-chain metadata content hash (keccak256 of the file).
+    function metadataHash() external view returns (bytes32);
 
     /*//////////////////////////////////////////////////////////////
                                VIEWS
