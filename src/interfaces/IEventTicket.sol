@@ -46,13 +46,31 @@ interface IEventTicket {
                             GATE / CHECK-IN
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Mark a ticket as used at the gate. One-way; reverts if already used.
-    /// @dev Verifier confirms the holder controls the owning wallet off-chain (signature),
-    ///      then this flips the flag so the ticket cannot be reused.
-    ///      Callable only by the organizer (owner) or an address the organizer has
+    /// @notice Mark a ticket as used at the gate on gate staff's attestation alone
+    ///         (e.g. a manual photo-ID check). One-way; reverts if already used.
+    /// @dev Callable only by the organizer (owner) or an address the organizer has
     ///      authorized via `setVerifier` — gate staff should be granted verifier
-    ///      status rather than the check being open to anyone.
+    ///      status rather than the check being open to anyone. This path does NOT
+    ///      cryptographically confirm the presenter controls the owning wallet —
+    ///      use `checkInWithSignature` when that proof is required.
     function checkIn(uint256 tokenId) external;
+
+    /// @notice Mark a ticket as used at the gate, requiring a signature from the
+    ///         ticket's *current owner* proving they control the owning wallet.
+    /// @dev The holder signs an EIP-712 `CheckIn(uint256 tokenId,uint256 deadline)`
+    ///      message (see `checkInDigest`) with their wallet at the gate; the
+    ///      verifier submits it here. Reverts if the deadline has passed, the
+    ///      signature doesn't recover to the current owner, or the ticket is
+    ///      already checked in. Still restricted to the organizer/an authorized
+    ///      verifier, same as `checkIn`.
+    /// @param tokenId The ticket being checked in.
+    /// @param deadline Unix timestamp after which the signature is no longer valid.
+    /// @param signature The holder's EIP-712 signature over `checkInDigest(tokenId, deadline)`.
+    function checkInWithSignature(uint256 tokenId, uint256 deadline, bytes calldata signature) external;
+
+    /// @notice The EIP-712 digest a ticket holder must sign to authorize
+    ///         `checkInWithSignature` for `tokenId` up until `deadline`.
+    function checkInDigest(uint256 tokenId, uint256 deadline) external view returns (bytes32);
 
     /// @notice Whether a ticket has already been checked in.
     function isCheckedIn(uint256 tokenId) external view returns (bool);

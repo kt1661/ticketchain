@@ -89,6 +89,16 @@ forge script script/Deploy.s.sol --rpc-url sepolia \
   away directly) fails fast with a clear reason.
 - **`EventTicket.checkIn()`** — restricted to the organizer or an address granted
   verifier status via `setVerifier`; no longer open to anyone.
+- **`EventTicket.checkInWithSignature()`** — cryptographic holder-presence proof.
+  The ticket holder signs an EIP-712 `CheckIn(tokenId, deadline)` message with
+  their own wallet at the gate; the verifier submits it and the contract recovers
+  the signer via `ECDSA.recover` and checks it matches the *current* `ownerOf`.
+  This proves the presenter controls the owning private key, not just that gate
+  staff eyeballed an ID. The EIP-712 domain (chainId + this contract's address)
+  plus the `deadline` stop a captured signature from being replayed on another
+  event, another ticket, or after the gate window closes; "already checked in"
+  makes it single-use. Plain `checkIn()` still exists for manual/no-wallet gate
+  flows, but only the signature path cryptographically proves wallet control.
 
 ---
 
@@ -100,3 +110,7 @@ forge script script/Deploy.s.sol --rpc-url sepolia \
 - Resale never exceeds the price cap (fuzzed).
 - Overpayment is always refunded (fuzzed).
 - Only the organizer can mint; only the owner can list.
+- `checkInWithSignature` rejects signatures from anyone but the current ticket
+  owner, expired signatures, and signatures replayed against a different tokenId
+  (`test_CheckInWithWrongSignerReverts`, `test_CheckInSignatureExpiredReverts`,
+  `test_CheckInSignatureBoundToTokenId`).

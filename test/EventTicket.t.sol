@@ -12,10 +12,12 @@ contract EventTicketTest is Test {
     EventTicket ticket;
 
     address organizer = makeAddr("organizer");
-    address alice = makeAddr("alice");
+    address alice;
+    uint256 alicePk;
     address bob = makeAddr("bob");
 
     function setUp() public {
+        (alice, alicePk) = makeAddrAndKey("alice");
         factory = new EventFactory();
 
         IEventTicket.EventInfo memory info = IEventTicket.EventInfo({
@@ -132,5 +134,108 @@ contract EventTicketTest is Test {
         vm.prank(bob);
         vm.expectRevert("EventTicket: not authorized");
         ticket.checkIn(id);
+    }
+
+    /// @notice The holder signs the EIP-712 CheckIn digest with their own wallet;
+    ///         an authorized verifier submits it and the ticket gets checked in.
+    function test_CheckInWithValidSignatureSucceeds() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signCheckIn(alicePk, id, deadline);
+
+        vm.prank(organizer);
+        ticket.checkInWithSignature(id, deadline, sig);
+
+        assertTrue(ticket.isCheckedIn(id));
+    }
+
+    /// @notice A signature from anyone other than the current owner must be rejected,
+    ///         even if the caller is an authorized verifier.
+    function test_CheckInWithWrongSignerReverts() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        uint256 deadline = block.timestamp + 15 minutes;
+        (, uint256 impostorPk) = makeAddrAndKey("impostor");
+        bytes memory sig = _signCheckIn(impostorPk, id, deadline);
+
+        vm.prank(organizer);
+        vm.expectRevert("EventTicket: invalid holder signature");
+        ticket.checkInWithSignature(id, deadline, sig);
+    }
+
+    /// @notice A signature past its deadline can't be used, even if it's otherwise valid.
+    function test_CheckInSignatureExpiredReverts() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signCheckIn(alicePk, id, deadline);
+
+        vm.warp(deadline + 1);
+
+        vm.prank(organizer);
+        vm.expectRevert("EventTicket: signature expired");
+        ticket.checkInWithSignature(id, deadline, sig);
+    }
+
+    /// @notice A valid holder signature alone isn't enough — the caller submitting
+    ///         it must still be the organizer or an authorized verifier.
+    function test_CheckInWithSignatureRequiresAuthorizedCaller() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signCheckIn(alicePk, id, deadline);
+
+        vm.prank(bob); // bob is neither organizer nor a granted verifier
+        vm.expectRevert("EventTicket: not authorized");
+        ticket.checkInWithSignature(id, deadline, sig);
+    }
+
+    /// @notice checkInWithSignature is one-way too — a second attempt, even with a
+    ///         fresh valid signature, must fail because the ticket is already used.
+    function test_CheckInWithSignatureAlreadyCheckedInReverts() public {
+        vm.prank(organizer);
+        uint256 id = ticket.mint(alice, "A-12");
+
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sig = _signCheckIn(alicePk, id, deadline);
+
+        vm.prank(organizer);
+        ticket.checkInWithSignature(id, deadline, sig);
+
+        bytes memory sig2 = _signCheckIn(alicePk, id, deadline);
+        vm.prank(organizer);
+        vm.expectRevert("EventTicket: already checked in");
+        ticket.checkInWithSignature(id, deadline, sig2);
+    }
+
+    /// @notice A signature scoped to one tokenId cannot be replayed against another —
+    ///         the EIP-712 digest binds tokenId, deadline, and this contract's address.
+    function test_CheckInSignatureBoundToTokenId() public {
+        vm.startPrank(organizer);
+        uint256 id1 = ticket.mint(alice, "A-12");
+        uint256 id2 = ticket.mint(alice, "A-13");
+        vm.stopPrank();
+
+        uint256 deadline = block.timestamp + 15 minutes;
+        bytes memory sigForId1 = _signCheckIn(alicePk, id1, deadline);
+
+        vm.prank(organizer);
+        vm.expectRevert("EventTicket: invalid holder signature");
+        ticket.checkInWithSignature(id2, deadline, sigForId1);
+    }
+
+    function _signCheckIn(uint256 signerPk, uint256 tokenId, uint256 deadline)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 digest = ticket.checkInDigest(tokenId, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, digest);
+        return abi.encodePacked(r, s, v);
     }
 }
