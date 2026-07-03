@@ -17,14 +17,15 @@ contract EventTicket is ERC721, Ownable, EIP712, IEventTicket {
     ///      the gate window has closed.
     bytes32 private constant CHECKIN_TYPEHASH = keccak256("CheckIn(uint256 tokenId,uint256 deadline)");
 
-    EventInfo private _info;
-    uint256 private _nextId = 1;
-    uint256 private _minted;
+    EventInfo private _info; // Event Data
+    uint256 private _nextId = 1; // Counter for next Ticket To Mint
+    uint256 private _minted; // How many tickets have been minted
 
     mapping(uint256 => string) private _seat;
     mapping(uint256 => bool) private _checkedIn;
-    mapping(address => bool) private _verifiers;
+    mapping(address => bool) private _verifiers; // Is this wallet authorized to check tickets
 
+    // Off-Chain content integrity pointer
     string private _metadataURI;
     bytes32 private _metadataHash;
 

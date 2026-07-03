@@ -32,7 +32,7 @@ contract Marketplace is IMarketplace, ReentrancyGuard {
     /// @inheritdoc IMarketplace
     /// @dev Proof of ownership: `ownerOf(tokenId) == msg.sender` (below) is the
     ///      seller proving, on-chain, that they currently hold the ticket they're
-    ///      listing. Proof of event legitimacy: `factory.isLegitimate` confirms
+    ///      listing for sale. Proof of event legitimacy: `factory.isLegitimate` confirms
     ///      `eventContract` was actually deployed by the trusted EventFactory, so a
     ///      buyer calling `buy(eventContract, tokenId)` can only ever receive a
     ///      ticket for a real, registered event — never a counterfeit look-alike.
