@@ -9,6 +9,11 @@
 #   ./script/run-demo.sh --auto             # run straight through, no pauses
 #   ./script/run-demo.sh --rpc <url> --auto # target a different RPC (e.g. local anvil)
 #   ./script/run-demo.sh --reset            # wipe deployments/sepolia.json first
+#   ./script/run-demo.sh --from 3           # resume from step 3, skipping the
+#                                            # (already-broadcast) transactions
+#                                            # in earlier steps -- still shows
+#                                            # their real on-chain state, just
+#                                            # doesn't re-send anything
 #
 # Requires: .env filled in (see .env.example), jq installed.
 set -uo pipefail
@@ -25,12 +30,14 @@ NC='\033[0m'
 RPC_URL="sepolia"
 MODE="interactive"
 RESET=false
+START_FROM=1
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --auto) MODE="auto"; shift ;;
         --rpc) RPC_URL="$2"; shift 2 ;;
         --reset) RESET=true; shift ;;
+        --from) START_FROM="$2"; shift 2 ;;
         *) echo "Unknown argument: $1" >&2; exit 1 ;;
     esac
 done
@@ -52,6 +59,7 @@ info()  { echo -e "  ${CYAN}->${NC} $1"; }
 ok()    { echo -e "  ${GREEN}[OK]${NC} $1"; }
 warn()  { echo -e "  ${YELLOW}[DENIED]${NC} $1"; }
 fail()  { echo -e "  ${RED}[FAIL]${NC} $1" >&2; }
+skip()  { echo -e "  ${YELLOW}[SKIP]${NC} $1"; }
 state() { echo -e "  ${BOLD}Final state:${NC}"; }
 
 pause() {
@@ -125,6 +133,11 @@ run_step() {
     fi
     echo -e "${BOLD}${CYAN}==================================================================${NC}"
 
+    if [ "$STEP_NUM" -lt "$START_FROM" ]; then
+        skip "resuming from step ${START_FROM} -- this was already broadcast in a previous run"
+        return
+    fi
+
     forge script "script/${script_file}" --sig "$sig" --rpc-url "$RPC_URL" --broadcast "$@" \
         | grep -v -E "^(No files changed|Compiling|Solc |## Setting up|ONCHAIN EXECUTION COMPLETE|Transactions saved to:|Sensitive values saved to:)"
     local status=${PIPESTATUS[0]}
@@ -159,6 +172,11 @@ run_offchain_step() {
     echo -e "${BOLD}${CYAN}>>> STARTING STEP ${STEP_NUM}: ${title_upper}${NC}"
     echo -e "${YELLOW}    (off-chain check -- no transaction is sent for this step)${NC}"
     echo -e "${BOLD}${CYAN}==================================================================${NC}"
+
+    if [ "$STEP_NUM" -lt "$START_FROM" ]; then
+        skip "resuming from step ${START_FROM}"
+        return
+    fi
 }
 
 # check LABEL EXPECTED ACTUAL -- prints PASS/FAIL, exits the whole run on a
@@ -184,6 +202,21 @@ check_differs() {
     else
         fail "CHECK: ${label} -- expected these to differ, but both are [${a}]"
         exit 1
+    fi
+}
+
+# is_deployed ADDRESS -- "true"/"false" depending on whether there's real
+# bytecode at that address. An address recorded in deployments/sepolia.json
+# is not proof of deployment by itself (a script can write the address it
+# *intended* to deploy to before confirming the broadcast actually landed) --
+# this checks the live chain directly.
+is_deployed() {
+    local code
+    code=$(cast code "$1" --rpc-url "$RPC_URL")
+    if [ "$code" = "0x" ] || [ -z "$code" ]; then
+        echo "false"
+    else
+        echo "true"
     fi
 }
 
@@ -234,6 +267,8 @@ run_step "Deploy EventFactory + Marketplace" \
 state
 info "EventFactory: $(factory_addr)"
 info "Marketplace:  $(marketplace_addr)"
+check "EventFactory has real bytecode on-chain (not just an intended address)" "true" "$(is_deployed "$(factory_addr)")"
+check "Marketplace has real bytecode on-chain (not just an intended address)" "true" "$(is_deployed "$(marketplace_addr)")"
 pause
 
 run_step "Fund Alice & Bob from the deployer wallet" \
@@ -258,6 +293,7 @@ info "Face value:   $(cast from-wei "$EVENT_FACE_VALUE_WEI") ETH"
 info "EventTicket:  $(event_ticket)"
 info "Alice ticket: #$(alice_token), $(ticket_summary "$(alice_token)")"
 info "Bob ticket:   #$(bob_token), $(ticket_summary "$(bob_token)")"
+check "EventTicket has real bytecode on-chain (not just an intended address)" "true" "$(is_deployed "$(event_ticket)")"
 check "ownerOf(aliceTokenId) == Alice" "$ALICE_ADDRESS" "$(owner_of "$(alice_token)")"
 check "ownerOf(bobTokenId) == Bob" "$BOB_ADDRESS" "$(owner_of "$(bob_token)")"
 pause
