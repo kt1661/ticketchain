@@ -2,6 +2,8 @@ cache/
 out/
 broadcast/
 .env
+.env.backup
+.env.*.backup
 docs/
 lib/forge-std/.git
 lib/openzeppelin-contracts/.git

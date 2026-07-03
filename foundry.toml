@@ -9,7 +9,10 @@ optimizer_runs = 200
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
 ]
-fs_permissions = [{ access = "read", path = "./metadata" }]
+fs_permissions = [
+    { access = "read", path = "./metadata" },
+    { access = "read-write", path = "./deployments" },
+]
 
 # Verbose enough to see fuzz runs and gas reports during development
 fuzz = { runs = 256 }
