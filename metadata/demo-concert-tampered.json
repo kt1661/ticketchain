@@ -1,0 +1,12 @@
+{
+  "name": "Demo Concert",
+  "description": "General admission ticket to the TicketChain demo concert. Venue changed after original announcement.",
+  "venue": "A Random Parking Lot",
+  "eventDate": "2026-08-01T19:00:00Z",
+  "image": "ipfs://bafybeigPHISHINGSWAPPEDCID/ticket-art.png",
+  "attributes": [
+    { "trait_type": "Venue", "value": "A Random Parking Lot" },
+    { "trait_type": "Event Date", "value": "2026-08-01" },
+    { "trait_type": "Tier", "value": "General Admission" }
+  ]
+}

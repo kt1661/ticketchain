@@ -63,6 +63,22 @@ pause() {
 
 eth_balance() { cast balance "$1" --rpc-url "$RPC_URL" --ether; }
 
+# label ADDRESS -- returns "Name (0xAddress)" for known demo actors, or just
+# the bare address if it's not one of ours. Always keeps the address visible
+# alongside the name -- this is a readability aid, not a replacement.
+label() {
+    local addr="$1"
+    if [ "$addr" = "$ALICE_ADDRESS" ]; then
+        echo "Alice (${addr})"
+    elif [ "$addr" = "$BOB_ADDRESS" ]; then
+        echo "Bob (${addr})"
+    elif [ "$addr" = "$WALLET_ADDRESS" ]; then
+        echo "Organizer (${addr})"
+    else
+        echo "$addr"
+    fi
+}
+
 print_tx_links() {
     local script_file="$1"
     local dir="broadcast/${script_file}"
@@ -127,6 +143,24 @@ run_step() {
     fi
 }
 
+# run_offchain_step TITLE -- prints a matching step banner for a step that
+# sends no transaction (a pure off-chain verification demonstration, e.g.
+# re-hashing a file locally). Keeps step numbering/narration consistent with
+# run_step even though there's nothing to broadcast here.
+run_offchain_step() {
+    local title="$1"
+
+    STEP_NUM=$((STEP_NUM + 1))
+    local title_upper
+    title_upper=$(echo "$title" | tr '[:lower:]' '[:upper:]')
+
+    echo
+    echo -e "${BOLD}${CYAN}==================================================================${NC}"
+    echo -e "${BOLD}${CYAN}>>> STARTING STEP ${STEP_NUM}: ${title_upper}${NC}"
+    echo -e "${YELLOW}    (off-chain check -- no transaction is sent for this step)${NC}"
+    echo -e "${BOLD}${CYAN}==================================================================${NC}"
+}
+
 # check LABEL EXPECTED ACTUAL -- prints PASS/FAIL, exits the whole run on a
 # failure (a mismatch here means the contracts didn't do what the demo
 # claims, which is worse than a step merely failing to broadcast).
@@ -140,6 +174,19 @@ check() {
     fi
 }
 
+# check_differs LABEL A B -- the inverse of check(): passes when A and B are
+# NOT equal. Used for the tampered-metadata demo, where success means the
+# hashes fail to match.
+check_differs() {
+    local label="$1" a="$2" b="$3"
+    if [ "$a" != "$b" ]; then
+        ok "CHECK: ${label}"
+    else
+        fail "CHECK: ${label} -- expected these to differ, but both are [${a}]"
+        exit 1
+    fi
+}
+
 # Small readers over deployments/sepolia.json + live chain state, used by the
 # inline checks/info lines below. Safe to call repeatedly; each does a fresh read.
 factory_addr() { jq -r '.factory' deployments/sepolia.json; }
@@ -149,9 +196,26 @@ alice_token() { jq -r '.aliceTokenId' deployments/sepolia.json; }
 bob_token() { jq -r '.bobTokenId' deployments/sepolia.json; }
 owner_of() { cast call "$(event_ticket)" "ownerOf(uint256)(address)" "$1" --rpc-url "$RPC_URL"; }
 checked_in() { cast call "$(event_ticket)" "isCheckedIn(uint256)(bool)" "$1" --rpc-url "$RPC_URL"; }
-listing_active() {
-    cast call "$(marketplace_addr)" "getListing(address,uint256)(address,uint256,bool)" \
-        "$(event_ticket)" "$1" --rpc-url "$RPC_URL" | tail -n1
+seat_of() { cast call "$(event_ticket)" "seatOf(uint256)(string)" "$1" --rpc-url "$RPC_URL" | tr -d '"'; }
+
+# getListing()/eventInfo() return a Solidity struct, not a flat list of
+# return values -- ABI-decoding that requires wrapping the tuple type in an
+# extra set of parens (e.g. "((address,uint256,bool))"), and since these
+# structs contain dynamic fields elsewhere in this contract (strings), we
+# decode via --json + jq rather than the human-readable text format, which
+# annotates numbers with "[1.2e3]"-style hints that aren't safe to text-parse.
+listing_json() {
+    cast call "$(marketplace_addr)" "getListing(address,uint256)((address,uint256,bool))" \
+        "$(event_ticket)" "$1" --rpc-url "$RPC_URL" --json
+}
+listing_active() { listing_json "$1" | jq -r '.[0][2]'; }
+listing_price_eth() { cast from-wei "$(listing_json "$1" | jq -r '.[0][1]')"; }
+
+# Prints the ticket's seat + current holder together, e.g.
+# "seat A-1, held by Bob (0x9A5f...)" -- the human-readable summary used
+# throughout the info lines below.
+ticket_summary() {
+    echo "seat $(seat_of "$1"), held by $(label "$(owner_of "$1")")"
 }
 
 echo -e "${BOLD}${CYAN}"
@@ -181,10 +245,19 @@ pause
 
 run_step "Organizer creates the event and mints tickets to Alice & Bob" \
     "01_CreateEventAndMint.s.sol" "runCreateAndMint()" false --private-key "$PRIVATE_KEY"
+EVENT_INFO_JSON=$(cast call "$(event_ticket)" \
+    "eventInfo()((string,uint256,string,uint256,uint256))" --rpc-url "$RPC_URL" --json)
+EVENT_NAME=$(echo "$EVENT_INFO_JSON" | jq -r '.[0][0]')
+EVENT_DATE_TS=$(echo "$EVENT_INFO_JSON" | jq -r '.[0][1]')
+EVENT_VENUE=$(echo "$EVENT_INFO_JSON" | jq -r '.[0][2]')
+EVENT_FACE_VALUE_WEI=$(echo "$EVENT_INFO_JSON" | jq -r '.[0][3]')
+EVENT_DATE_HUMAN=$(date -r "$EVENT_DATE_TS" 2>/dev/null || date -d "@${EVENT_DATE_TS}" 2>/dev/null || echo "$EVENT_DATE_TS")
 state
+info "Event:        \"${EVENT_NAME}\" at ${EVENT_VENUE}, ${EVENT_DATE_HUMAN}"
+info "Face value:   $(cast from-wei "$EVENT_FACE_VALUE_WEI") ETH"
 info "EventTicket:  $(event_ticket)"
-info "Alice ticket: #$(alice_token)"
-info "Bob ticket:   #$(bob_token)"
+info "Alice ticket: #$(alice_token), $(ticket_summary "$(alice_token)")"
+info "Bob ticket:   #$(bob_token), $(ticket_summary "$(bob_token)")"
 check "ownerOf(aliceTokenId) == Alice" "$ALICE_ADDRESS" "$(owner_of "$(alice_token)")"
 check "ownerOf(bobTokenId) == Bob" "$BOB_ADDRESS" "$(owner_of "$(bob_token)")"
 pause
@@ -207,7 +280,7 @@ pause
 run_step "Alice approves and lists her ticket for resale" \
     "02_ResaleFlow.s.sol" "runListing()" false
 state
-info "Alice lists ticket #$(alice_token) for resale"
+info "Alice lists ticket #$(alice_token) (seat $(seat_of "$(alice_token)")) for $(listing_price_eth "$(alice_token)") ETH"
 check "listing is now active" "true" "$(listing_active "$(alice_token)")"
 pause
 
@@ -220,7 +293,7 @@ pause
 run_step "Bob buys Alice's listed ticket" \
     "02_ResaleFlow.s.sol" "runPurchase()" false
 state
-info "New owner of ticket #$(alice_token): $(owner_of "$(alice_token)") (Bob)"
+info "Ticket #$(alice_token) now $(ticket_summary "$(alice_token)")"
 info "Alice balance: $(eth_balance "$ALICE_ADDRESS") ETH (received sale proceeds)"
 info "Bob balance:   $(eth_balance "$BOB_ADDRESS") ETH (paid the listed price)"
 check "ownerOf(aliceTokenId) == Bob after purchase" "$BOB_ADDRESS" "$(owner_of "$(alice_token)")"
@@ -235,7 +308,7 @@ pause
 run_step "Organizer checks Bob's original ticket in" \
     "03_ManualCheckIn.s.sol" "runCheckIn()" false --private-key "$PRIVATE_KEY"
 state
-info "Ticket #$(bob_token): checked in (manual, by organizer)"
+info "Ticket #$(bob_token) ($(seat_of "$(bob_token)")) checked in (manual) -- holder: $(label "$(owner_of "$(bob_token)")")"
 check "bobTokenId now checked in" "true" "$(checked_in "$(bob_token)")"
 pause
 
@@ -252,7 +325,7 @@ pause
 run_step "Bob (current owner) signs and gets checked in via EIP-712" \
     "04_SignatureCheckIn.s.sol" "runCheckIn()" false --private-key "$PRIVATE_KEY"
 state
-info "Ticket #$(alice_token): checked in (EIP-712 signature, by Bob)"
+info "Ticket #$(alice_token) ($(seat_of "$(alice_token)")) checked in (EIP-712 signature) -- holder: $(label "$(owner_of "$(alice_token)")")"
 check "aliceTokenId now checked in (via Bob's signature)" "true" "$(checked_in "$(alice_token)")"
 pause
 
@@ -265,12 +338,37 @@ run_step "Organizer sets metadata, then legitimately updates it (venue change)" 
     "05_MetadataUpdate.s.sol" "runSetMetadata()" false --private-key "$PRIVATE_KEY"
 METADATA_URI=$(cast call "$(event_ticket)" "metadataURI()(string)" --rpc-url "$RPC_URL" | tr -d '"')
 METADATA_HASH=$(cast call "$(event_ticket)" "metadataHash()(bytes32)" --rpc-url "$RPC_URL")
+# Independently re-hash the actual file on disk -- this is the verification
+# step anyone could run themselves, not just trust our own commit.
 EXPECTED_V2_HASH=$(cast keccak "0x$(xxd -p metadata/demo-concert-v2.json | tr -d '\n')")
 state
-info "Metadata URI:  ${METADATA_URI}"
-info "Metadata hash: ${METADATA_HASH}"
+info "Metadata URI:         ${METADATA_URI}"
+info "On-chain hash:        ${METADATA_HASH}"
+info "Re-hashed from file:  ${EXPECTED_V2_HASH}"
+if [ "$METADATA_HASH" = "$EXPECTED_V2_HASH" ]; then
+    info "Match: YES -- file content verified against the on-chain commitment"
+else
+    info "Match: NO -- file content does NOT match the on-chain commitment"
+fi
 check "metadataURI == v2 artifact" "metadata/demo-concert-v2.json" "$METADATA_URI"
 check "metadataHash matches demo-concert-v2.json bytes" "$EXPECTED_V2_HASH" "$METADATA_HASH"
+pause
+
+run_offchain_step "Tampering check: hashing a swapped-in fake artifact"
+# Simulates an attacker swapping the file hosted at the same nominal URI
+# (e.g. a compromised host or a re-pinned IPFS CID) -- metadata/demo-concert-tampered.json
+# looks superficially similar (same filename convention, same JSON shape)
+# but has a different venue and a swapped image link.
+TAMPERED_HASH=$(cast keccak "0x$(xxd -p metadata/demo-concert-tampered.json | tr -d '\n')")
+state
+info "On-chain hash (unchanged):     ${METADATA_HASH}"
+info "Hash of the swapped-in file:   ${TAMPERED_HASH}"
+if [ "$METADATA_HASH" = "$TAMPERED_HASH" ]; then
+    info "Match: YES -- this would mean tampering went UNDETECTED (should not happen)"
+else
+    info "Match: NO -- tampering DETECTED. Anyone re-hashing the file themselves would catch this."
+fi
+check_differs "tampered file hash does not match the on-chain commitment" "$TAMPERED_HASH" "$METADATA_HASH"
 pause
 
 run_step "DENIED: Bob (non-organizer) tries to set metadata" \
