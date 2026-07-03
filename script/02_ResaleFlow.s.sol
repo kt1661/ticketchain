@@ -34,7 +34,10 @@ import {Marketplace} from "../src/Marketplace.sol";
 /// intentionally send a call that reverts, and we want that failure mined
 /// on-chain and visible in the block explorer, not silently caught locally.
 contract ResaleFlow is Script {
-    string constant STATE_PATH = "deployments/sepolia.json";
+    function _statePath() internal view returns (string memory) {
+        return vm.envOr("STATE_FILE", string("deployments/sepolia.json"));
+    }
+
     address constant FAKE_EVENT_CONTRACT = address(0xBEEF);
 
     /// @dev Explicit gas ceiling for calls we expect to revert -- forge can't
@@ -125,7 +128,7 @@ contract ResaleFlow is Script {
     }
 
     function _load() internal returns (address eventContract, address marketplaceAddr, uint256 tokenId) {
-        string memory json = vm.readFile(STATE_PATH);
+        string memory json = vm.readFile(_statePath());
         eventContract = vm.parseJsonAddress(json, ".eventTicket");
         marketplaceAddr = vm.parseJsonAddress(json, ".marketplace");
         tokenId = vm.parseJsonUint(json, ".aliceTokenId");

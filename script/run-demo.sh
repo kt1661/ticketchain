@@ -8,7 +8,7 @@
 #   ./script/run-demo.sh                    # interactive: pause after each step
 #   ./script/run-demo.sh --auto             # run straight through, no pauses
 #   ./script/run-demo.sh --rpc <url> --auto # target a different RPC (e.g. local anvil)
-#   ./script/run-demo.sh --reset            # wipe deployments/sepolia.json first
+#   ./script/run-demo.sh --reset            # wipe the target network's state file first
 #   ./script/run-demo.sh --from 3           # resume from step 3, skipping the
 #                                            # (already-broadcast) transactions
 #                                            # in earlier steps -- still shows
@@ -48,9 +48,18 @@ if [ ! -f .env ]; then
 fi
 source .env
 
+# Each .env variant (.env.sepolia / .env.anvil) sets its own STATE_FILE so
+# the two networks' deployment records never clobber each other; fall back to
+# the Sepolia default if it's unset.
+STATE_FILE="${STATE_FILE:-deployments/sepolia.json}"
+
+if [ ! -f "$STATE_FILE" ]; then
+    echo '{}' > "$STATE_FILE"
+fi
+
 if [ "$RESET" = true ]; then
-    echo '{}' > deployments/sepolia.json
-    echo "Reset deployments/sepolia.json"
+    echo '{}' > "$STATE_FILE"
+    echo "Reset $STATE_FILE"
 fi
 
 STEP_NUM=0
@@ -206,8 +215,8 @@ check_differs() {
 }
 
 # is_deployed ADDRESS -- "true"/"false" depending on whether there's real
-# bytecode at that address. An address recorded in deployments/sepolia.json
-# is not proof of deployment by itself (a script can write the address it
+# bytecode at that address. An address recorded in the state file is not
+# proof of deployment by itself (a script can write the address it
 # *intended* to deploy to before confirming the broadcast actually landed) --
 # this checks the live chain directly.
 is_deployed() {
@@ -220,13 +229,13 @@ is_deployed() {
     fi
 }
 
-# Small readers over deployments/sepolia.json + live chain state, used by the
+# Small readers over $STATE_FILE + live chain state, used by the
 # inline checks/info lines below. Safe to call repeatedly; each does a fresh read.
-factory_addr() { jq -r '.factory' deployments/sepolia.json; }
-event_ticket() { jq -r '.eventTicket' deployments/sepolia.json; }
-marketplace_addr() { jq -r '.marketplace' deployments/sepolia.json; }
-alice_token() { jq -r '.aliceTokenId' deployments/sepolia.json; }
-bob_token() { jq -r '.bobTokenId' deployments/sepolia.json; }
+factory_addr() { jq -r '.factory' "$STATE_FILE"; }
+event_ticket() { jq -r '.eventTicket' "$STATE_FILE"; }
+marketplace_addr() { jq -r '.marketplace' "$STATE_FILE"; }
+alice_token() { jq -r '.aliceTokenId' "$STATE_FILE"; }
+bob_token() { jq -r '.bobTokenId' "$STATE_FILE"; }
 owner_of() { cast call "$(event_ticket)" "ownerOf(uint256)(address)" "$1" --rpc-url "$RPC_URL"; }
 checked_in() { cast call "$(event_ticket)" "isCheckedIn(uint256)(bool)" "$1" --rpc-url "$RPC_URL"; }
 seat_of() { cast call "$(event_ticket)" "seatOf(uint256)(string)" "$1" --rpc-url "$RPC_URL" | tr -d '"'; }
@@ -418,4 +427,4 @@ echo "=================================================================="
 echo "  DEMO COMPLETE -- ALL STEPS AND CHECKS PASSED"
 echo "=================================================================="
 echo -e "${NC}"
-cat deployments/sepolia.json
+cat "$STATE_FILE"

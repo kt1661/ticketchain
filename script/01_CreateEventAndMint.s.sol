@@ -24,7 +24,9 @@ import {IEventTicket} from "../src/interfaces/IEventTicket.sol";
 /// a call that reverts, and we want that failure mined on-chain and visible
 /// in the block explorer, not silently caught locally.
 contract CreateEventAndMint is Script {
-    string constant STATE_PATH = "deployments/sepolia.json";
+    function _statePath() internal view returns (string memory) {
+        return vm.envOr("STATE_FILE", string("deployments/sepolia.json"));
+    }
 
     /// @dev Explicit gas ceiling for calls we expect to revert -- forge can't
     ///      use eth_estimateGas for these (it also reverts), so we supply the
@@ -34,7 +36,8 @@ contract CreateEventAndMint is Script {
 
     /// @notice The organizer creates the event and mints ticket #1 to Alice, #2 to Bob.
     function runCreateAndMint() external {
-        address factoryAddr = vm.parseJsonAddress(vm.readFile(STATE_PATH), ".factory");
+        string memory statePath = _statePath();
+        address factoryAddr = vm.parseJsonAddress(vm.readFile(statePath), ".factory");
         address alice = vm.envAddress("ALICE_ADDRESS");
         address bob = vm.envAddress("BOB_ADDRESS");
 
@@ -55,9 +58,9 @@ contract CreateEventAndMint is Script {
         uint256 bobTokenId = EventTicket(eventContract).mint(bob, "A-2");
         vm.stopBroadcast();
 
-        vm.writeJson(string.concat('"', vm.toString(eventContract), '"'), STATE_PATH, ".eventTicket");
-        vm.writeJson(vm.toString(aliceTokenId), STATE_PATH, ".aliceTokenId");
-        vm.writeJson(vm.toString(bobTokenId), STATE_PATH, ".bobTokenId");
+        vm.writeJson(string.concat('"', vm.toString(eventContract), '"'), statePath, ".eventTicket");
+        vm.writeJson(vm.toString(aliceTokenId), statePath, ".aliceTokenId");
+        vm.writeJson(vm.toString(bobTokenId), statePath, ".bobTokenId");
 
         console2.log("EventTicket:  ", eventContract);
         console2.log("Alice tokenId:", aliceTokenId);
@@ -66,7 +69,7 @@ contract CreateEventAndMint is Script {
 
     /// @notice DENIED: Bob is not the organizer, so this mint must revert on-chain.
     function runDeniedMint() external {
-        address eventContract = vm.parseJsonAddress(vm.readFile(STATE_PATH), ".eventTicket");
+        address eventContract = vm.parseJsonAddress(vm.readFile(_statePath()), ".eventTicket");
         address bob = vm.envAddress("BOB_ADDRESS");
         uint256 bobPk = vm.envUint("BOB_PRIVATE_KEY");
 

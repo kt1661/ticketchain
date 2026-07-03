@@ -7,3 +7,7 @@ docs/
 lib/forge-std/.git
 lib/openzeppelin-contracts/.git
 lib/
+
+# Local anvil deployment record -- ephemeral, resets every anvil restart.
+# deployments/sepolia.json is the real testnet deployment proof and stays tracked.
+deployments/anvil.json

@@ -1,4 +1,7 @@
 {
   "factory": "0xAB54EA59ab889a26875c02c5Ac7AEDeFa61DC479",
-  "marketplace": "0x9Efdf82a90C455a60EC46385ad0397edF968517d"
+  "marketplace": "0x9Efdf82a90C455a60EC46385ad0397edF968517d",
+  "eventTicket": "0x6f533b434d72bdcfADeac4D22fCf28e1fd38f389",
+  "aliceTokenId": 1,
+  "bobTokenId": 2
 }

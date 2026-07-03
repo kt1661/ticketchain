@@ -22,7 +22,9 @@ import {EventTicket} from "../src/EventTicket.sol";
 /// sends a call that reverts, and we want that failure mined on-chain and
 /// visible in the block explorer, not silently caught locally.
 contract MetadataUpdate is Script {
-    string constant STATE_PATH = "deployments/sepolia.json";
+    function _statePath() internal view returns (string memory) {
+        return vm.envOr("STATE_FILE", string("deployments/sepolia.json"));
+    }
 
     /// @dev Explicit gas ceiling for calls we expect to revert -- forge can't
     ///      use eth_estimateGas for these (it also reverts), so we supply the
@@ -34,7 +36,7 @@ contract MetadataUpdate is Script {
     ///         (simulating a venue change). Both calls emit MetadataUpdated,
     ///         so the full history is auditable, not just the latest value.
     function runSetMetadata() external {
-        address eventContract = vm.parseJsonAddress(vm.readFile(STATE_PATH), ".eventTicket");
+        address eventContract = vm.parseJsonAddress(vm.readFile(_statePath()), ".eventTicket");
         EventTicket ticket = EventTicket(eventContract);
 
         string memory v1Uri = "metadata/demo-concert.json";
@@ -54,7 +56,7 @@ contract MetadataUpdate is Script {
 
     /// @notice DENIED: Bob is not the organizer.
     function runDeniedSetMetadata() external {
-        address eventContract = vm.parseJsonAddress(vm.readFile(STATE_PATH), ".eventTicket");
+        address eventContract = vm.parseJsonAddress(vm.readFile(_statePath()), ".eventTicket");
         uint256 bobPk = vm.envUint("BOB_PRIVATE_KEY");
         string memory v1Uri = "metadata/demo-concert.json";
         bytes32 v1Hash = keccak256(bytes(vm.readFile(v1Uri)));

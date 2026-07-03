@@ -30,7 +30,9 @@ import {EventTicket} from "../src/EventTicket.sol";
 /// intentionally send a call that reverts, and we want that failure mined
 /// on-chain and visible in the block explorer, not silently caught locally.
 contract SignatureCheckIn is Script {
-    string constant STATE_PATH = "deployments/sepolia.json";
+    function _statePath() internal view returns (string memory) {
+        return vm.envOr("STATE_FILE", string("deployments/sepolia.json"));
+    }
 
     /// @dev Explicit gas ceiling for calls we expect to revert -- forge can't
     ///      use eth_estimateGas for these (it also reverts), so we supply the
@@ -81,7 +83,7 @@ contract SignatureCheckIn is Script {
     }
 
     function _load() internal returns (address eventContract, uint256 tokenId) {
-        string memory json = vm.readFile(STATE_PATH);
+        string memory json = vm.readFile(_statePath());
         eventContract = vm.parseJsonAddress(json, ".eventTicket");
         tokenId = vm.parseJsonUint(json, ".aliceTokenId"); // now owned by Bob
     }
