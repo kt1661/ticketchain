@@ -73,6 +73,12 @@ forge script script/Deploy.s.sol --rpc-url sepolia \
     --broadcast --private-key $PRIVATE_KEY --verify
 ```
 
+## Running the full demo
+
+To run the full usage scenario end-to-end (deploy, create an event, mint,
+resale, check-in, metadata update) via `script/run-demo.sh` against either a
+local `anvil` node or real Sepolia, see [`RUNNING_THE_DEMO.md`](RUNNING_THE_DEMO.md).
+
 ---
 
 ## Security hardening implemented
